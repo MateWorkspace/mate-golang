@@ -17,8 +17,11 @@ models, configuration, or application architecture.
 - **Transparent execution:** `Exec`, `Query`, and `QueryRow` use the pool normally
   and the attached transaction inside a `WithTx` callback.
 - **Transaction callbacks:** commit on success and attempt rollback on failure.
-- **Nested reuse:** nested callbacks share the existing transaction without
-  creating savepoints.
+- **Strict application transactions:** `NewTransactor(...).WithTx` rejects an
+  attached transaction with `ErrTransactionAlreadyActive` before running its
+  callback, so a successful call owns its commit boundary.
+- **Repository transaction reuse:** `NewPgxdt(...).WithTx` shares an attached
+  transaction without creating savepoints.
 - **Small interfaces:** inject `Pgxdt` for database operations or `Transactor` for
   transaction orchestration.
 - **Native errors:** callback and pgx errors are returned unchanged.
@@ -58,9 +61,15 @@ if err != nil {
 }
 ```
 
-The caller owns the pool lifecycle. Nested transaction errors must propagate to
-the outer callback when the transaction should roll back. An attached transaction
-takes precedence over the pool; pool ownership is not checked.
+The caller owns the pool lifecycle. Use `NewTransactor` for application transaction
+boundaries and `NewPgxdt` for repository operations. Both satisfy the `Transactor`
+interface, but only `NewTransactor` rejects nesting. Detect rejection with
+`errors.Is(err, pgxdt.ErrTransactionAlreadyActive)`.
+
+Nested transaction errors must propagate to the outer callback when the transaction
+should roll back; rejection does not itself roll back the caller's transaction.
+Database operations use the attached transaction in preference to the pool; pool
+ownership is not checked.
 
 ### Local development
 
@@ -98,5 +107,5 @@ go test ./...
 go vet ./...
 ```
 
-Format Go changes with `gofmt`. The current package does not yet contain test
-files.
+Format Go changes with `gofmt`. Package tests cover strict transactor rejection,
+repository transaction reuse, and callback error propagation without a database.
